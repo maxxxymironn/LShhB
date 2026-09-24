@@ -13,7 +13,7 @@ public:
     Logger(const Logger& other) = delete;
     Logger& operator=(const Logger& other) = delete;
 
-    void printError(const char* str);
+    void printError(const char* str, const bool validationError=false);
     void printInfo(const char* str);
 
     void printHelpInfo();

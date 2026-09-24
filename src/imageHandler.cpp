@@ -7,10 +7,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#include <filesystem>
+#include <algorithm>
 #include <string>
 #include <fstream>
-#include <format>
 #include <random>
 #include <iostream>
 #include <vector>
@@ -21,8 +20,8 @@ using ullong = unsigned long long;
 
 namespace {
     std::string errMsg;
-    const uchar mask1 = 0b0000'0001; // for |
-    const uchar mask0 = 0b1111'1110; // for &
+    const uchar mask1 = 0b0000'0001;
+    const uchar mask0 = 0b1111'1110;
     const std::string_view signature = "LShh..B";
 
     int correctSourceSize(uint srcSize, const uint containerCapacity) {
@@ -33,7 +32,7 @@ namespace {
 
             std::string input;
             getline(std::cin, input);
-            if (input.size() != 1 || input[0] != 'Y' && input[0] != 'y')
+            if (input.size() != 1 || (input[0] != 'Y' && input[0] != 'y'))
                 return 0;
 
             srcSize = (containerCapacity - 89) / 8;
@@ -58,15 +57,44 @@ namespace {
 }
 
 ImageHandler::ImageHandler(const std::string_view imagePath, const std::string_view secret)
-    : _px(0), _subPx(0), _imgPath(imagePath), _secret(secret), _advancedMode(!_secret.empty())
+    : _px(0), 
+      _subPx(0), 
+      _advancedMode(!secret.empty())
 {
-    bool hasErrors = _openImage(_imgPath.c_str());
-    if (!hasErrors && !_secret.empty())
-        _imgPxs = getVecRandomPxs(_secret, _imgWidth * _imgHeight);
+    bool hasErrors = _openImage(imagePath);
+    if (!hasErrors && _advancedMode)
+        _imgPxs = getVecRandomPxs(secret, _imgWidth * _imgHeight);
 }
 
 ImageHandler::~ImageHandler() {
     if (_imgData) stbi_image_free(_imgData);
+}
+
+bool ImageHandler::_openImage(const std::string_view path) {
+    _imgData = stbi_load(
+        path.data(), 
+        &_imgWidth, &_imgHeight, 
+        &_imgChannels,  4        
+    );
+    if (!_imgData) {
+        Logger::getInstance()->printError("Load source image failed");
+        return 1;
+    }
+
+    // signature = 56 bit
+    // header = 33 bit
+    // data = >= 8 bit
+    // minimum pixel capacity = (56 + 33 + 8) / 3 = 32.33 ~ 33
+    if (_imgWidth * _imgHeight < 33) {
+        Logger::getInstance()->printError(
+            "Image size too small to hide/read information.\n"
+        );
+        return 1;
+    }
+
+    _imgCapacity = _imgWidth * _imgHeight * 3;
+
+    return 0;
 }
 
 void ImageHandler::_hideSignature() {
@@ -94,7 +122,7 @@ bool ImageHandler::_readSignature() {
     uint byte;
     uchar symbol;
 
-    for (int i = 0; i < signature.size(); ++i) {
+    for (std::size_t i = 0; i < signature.size(); ++i) {
         symbol = 0;
         for (int j = 0; j < 8; ++j, ++_subPx) {
             if (_advancedMode) {
@@ -205,8 +233,7 @@ void ImageHandler::_hideImageHeader(const uint width, const uint height, const b
                                   : _imgData[byte] & mask0;
 }
 
-ImageHandler::Info ImageHandler::_readImageHeader() {
-    ImageHandler::Info imgInfo(0, 0, false);
+void ImageHandler::_readImageHeader(unsigned int& width, unsigned int& height, bool& has4Channels) {
     uint byte;
 
     for (int i = 0; i < 16; ++i, ++_subPx) {
@@ -220,8 +247,8 @@ ImageHandler::Info ImageHandler::_readImageHeader() {
         }
 
         uchar bit = _imgData[byte] & mask1;
-        imgInfo.width <<= 1;
-        imgInfo.width += bit;
+        width <<= 1;
+        width += bit;
     }
 
     for (int i = 0; i < 16; ++i, ++_subPx) {
@@ -235,8 +262,8 @@ ImageHandler::Info ImageHandler::_readImageHeader() {
         }
 
         uchar bit = _imgData[byte] & mask1;
-        imgInfo.height <<= 1;
-        imgInfo.height += bit;
+        height <<= 1;
+        height += bit;
     }
 
     if (_advancedMode) {
@@ -247,15 +274,13 @@ ImageHandler::Info ImageHandler::_readImageHeader() {
         if ((_subPx + 1) % 4 == 0) ++_subPx;
         byte = _subPx++;
     }
-    imgInfo.has4Channels = _imgData[byte] & mask1;
-
-    return imgInfo;
+    has4Channels = _imgData[byte] & mask1;
 }
 
 void ImageHandler::_hidePayload(const uchar* const srcData, const uint srcSize) {
     uint bytePos;
 
-    for (int i = 0; i < srcSize; ++i) {
+    for (uint i = 0; i < srcSize; ++i) {
         for (int j = 7; j >= 0; --j, ++_subPx) {
             if (_advancedMode) {
                 if (_subPx > 2) ++(_px), _subPx = 0;
@@ -273,20 +298,11 @@ void ImageHandler::_hidePayload(const uchar* const srcData, const uint srcSize) 
     }
 }
 
-bool ImageHandler::_readPayload(const unsigned int size) {
-    const uint savedSize = size * 8 > _imgCapacity - 89 
-                         ? (_imgCapacity - 89) / 8
-                         : size;
+void ImageHandler::_readPayload(unsigned char* const srcData, const unsigned int size) {
     uint bytePos;
 
-    std::ofstream file("result");
-    if (!file.is_open()) {
-        Logger::getInstance()->printError("Output file creation failed");
-        return 1;
-    }
-
-    for (int i = 0; i < savedSize; ++i) {
-        uchar symbol = 0;
+    for (uint i = 0; i < size; ++i) {
+        uchar byte = 0;
         for (int j = 0; j < 8; ++j, ++_subPx) {
             if (_advancedMode) {
                 if (_subPx > 2) ++(_px), _subPx = 0;
@@ -298,45 +314,11 @@ bool ImageHandler::_readPayload(const unsigned int size) {
             }        
 
             uchar bit = _imgData[bytePos] & mask1;
-            symbol <<= 1;
-            symbol += bit;
-        }
-        file << symbol;
-    }
-    file << "\n";
-    
-    return 0;
-}
-
-void ImageHandler::_readImagePayload(uchar* const srcData, const uint srcSize) {
-    const uint savedSize = srcSize * 8 > _imgCapacity - 89 
-                         ? (_imgCapacity - 89) / 8
-                         : srcSize;
-    uint bytePos;
-
-    int i = 0;
-    for (; i < savedSize; ++i) {
-        uchar byte = 0;
-        for (int j = 0; j < 8; ++j, ++_subPx) {
-            if (_advancedMode) {
-                if (_subPx > 2) ++(_px), _subPx = 0;
-                bytePos = _imgPxs[_px] * 4 + _subPx;
-            }
-            else {
-                if ((_subPx + 1) % 4 == 0) ++_subPx;
-                bytePos = _subPx;
-            }
-
-            uchar bit = _imgData[bytePos] & mask1;
             byte <<= 1;
             byte += bit;
         }
         srcData[i] = byte;
     }
-
-    breakReading:
-    for (int j = i; j < srcSize; ++j)
-        srcData[i] = 0;
 }
 
 bool ImageHandler::_hideImage(const std::string_view source, const bool has4Channels) {
@@ -369,76 +351,67 @@ bool ImageHandler::_hideImage(const std::string_view source, const bool has4Chan
 }
 
 void ImageHandler::_readImage() {
-    ImageHandler::Info imgInfo = _readImageHeader();
+    uint width = 0;
+    uint height = 0;
+    bool has4Channels = false;
+    _readImageHeader(width, height, has4Channels);
 
-    const uint size = imgInfo.width * imgInfo.height * (imgInfo.has4Channels ? 4 : 3);
+    const uint size = width * height * (has4Channels ? 4 : 3);
     uchar* hiddenImgData = new uchar[size];
+
+    const uint savedSize = size * 8 > _imgCapacity - 89 
+                         ? (_imgCapacity - 89) / 8
+                         : size;
     
-    _readImagePayload(hiddenImgData, size);
+    _readPayload(hiddenImgData, savedSize);
+    for (uint i = savedSize; i < size; ++i)
+        hiddenImgData[i] = 0;
 
     stbi_image_free(_imgData);
     _imgData = hiddenImgData;
-    _imgWidth = imgInfo.width;
-    _imgHeight = imgInfo.height;
-    _imgChannels = imgInfo.has4Channels ? 4 : 3;
+    _imgWidth = width;
+    _imgHeight = height;
+    _imgChannels = has4Channels ? 4 : 3;
 }
 
-bool ImageHandler::_openImage(const std::string_view path) {
-    _imgData = stbi_load(
-        path.data(), 
-        &_imgWidth, &_imgHeight, 
-        &_imgChannels,  4        
-    );
-    if (!_imgData) {
-        Logger::getInstance()->printError("Load source image failed");
-        return 1;
-    }
+bool ImageHandler::_hideStr(const std::string_view source) {
+    const uint size = source.size();
+    _hideHeader(size);
 
-    // signature = 56 bit
-    // header = 33 bit
-    // data = >= 8 bit
-    // minimum pixel capacity = (56 + 33 + 8) / 3 = 32.33 ~ 33
-    if (_imgWidth * _imgHeight < 33) {
-        Logger::getInstance()->printError(
-            "Image size too small to hide/read information.\n"
-        );
+    uint srcBytes = correctSourceSize(size, _imgCapacity);
+    if (!srcBytes)
         return 1;
-    }
 
-    _imgCapacity = _imgWidth * _imgHeight * 3;
+    _hidePayload(reinterpret_cast<const uchar*>(source.data()), srcBytes);
 
     return 0;
 }
-    
-bool ImageHandler::saveResult(
-    const bool isCustomPath, const std::string_view savePath, 
-    const DataType dataType, const Action action
-) {
-    std::string outputFileName(savePath);
-    if (!isCustomPath) {
-        if (action == Action::HIDE) {
-            outputFileName = std::format(
-                "{}{}{}_with_{}{}.{}",
-                _imgPath.parent_path().c_str(),
-                _imgPath.has_parent_path() ? "/" : "",
-                _imgPath.stem().c_str(),
-                dataType == DataType::STR ? "str" 
-                                        : dataType == DataType::FILE ? "file_" 
-                                                                    : "image_",
-                dataType == DataType::STR ? "" : std::filesystem::path(savePath).stem().c_str(),
-                _imgChannels == 4 ? "png" : "jpg"
-            );
-        }
-        else {
-            outputFileName = std::format(
-                "output_image.{}",
-                _imgChannels == 4 ? "png" : "jpg"
-            );
-        }
-    }
 
-    bool success;
-    if (_imgChannels == 4) {
+void ImageHandler::_readStr() {
+    const uint size = _readHeader();
+    const uint savedSize = size * 8 > _imgCapacity - 89 
+                         ? (_imgCapacity - 89) / 8
+                         : size;
+
+    _textData.resize(savedSize);
+    
+    _readPayload(reinterpret_cast<uchar*>(_textData.data()), savedSize);
+}
+
+bool ImageHandler::saveResult(
+    const std::string_view savePath, const DataType dataType, const bool hide
+) {
+    constexpr const char* DEFAULT_IMAGE_NAME = "image_with_secret.png";
+    constexpr const char* DEFAULT_RESULT_NAME = "secret_from_image";
+
+    bool success = true;
+    std::string outputFileName;
+
+    if (hide) {
+        outputFileName = !savePath.empty()
+                       ? savePath
+                       : DEFAULT_IMAGE_NAME;
+        
         success = stbi_write_png(
             outputFileName.c_str(),
             _imgWidth, _imgHeight,
@@ -447,65 +420,75 @@ bool ImageHandler::saveResult(
         );
     }
     else {
-        success = stbi_write_jpg(
-            outputFileName.c_str(),
-            _imgWidth, _imgHeight, 
-            _imgChannels, _imgData, 85
-        );
+        outputFileName = !savePath.empty()
+                       ? savePath
+                       : DEFAULT_RESULT_NAME;
+        
+        if (dataType == DataType::IMAGE) {
+            if (_imgChannels == 4) {
+                outputFileName += ".png";
+                success = stbi_write_png(
+                    outputFileName.c_str(),
+                    _imgWidth, _imgHeight,
+                    _imgChannels, _imgData,
+                    _imgWidth * _imgChannels
+                );
+            }
+            else {
+                outputFileName += ".jpg";
+                success = stbi_write_jpg(
+                    outputFileName.c_str(),
+                    _imgWidth, _imgHeight, 
+                    _imgChannels, _imgData, 85
+                );
+            }
+        }
+        else {
+            std::ofstream file(outputFileName);
+            if (file.is_open()) {
+                if (!_textData.ends_with('\n'))
+                    _textData.push_back('\n');
+
+                if (!file.write(_textData.data(), _textData.size()))
+                    success = false;
+            }
+            else success = false;
+        }
     }
 
     if (!success) {
         Logger::getInstance()->printError("Failed to save result");
-        return false;
+        return 1;
     }
-    return true;
+    return 0;
 }
 
 bool ImageHandler::read(const DataType dataType) {
-    bool hasErrors = _readSignature();
-    if (hasErrors)
-        return false;
+    if (_readSignature())
+        return 1;
 
     switch (dataType) {
-        case DataType::STR: {
-            const uint size = _readHeader();
-
-            hasErrors = _readPayload(size);
-            if (hasErrors)
-                return false;
-
-            return true;
-        }
-
-        case DataType::FILE: {
-            Logger::getInstance()->printInfo("Work in progress");
-            return false;
-        }
-
+        case DataType::STR: _readStr(); break;
         case DataType::IMAGE: _readImage(); break;
+        case DataType::FILE: {
+            Logger::getInstance()->printInfo("Work with file in progress.");
+            return 1;
+        }
     }
-    return true;
+    return 0;
 }
 
 bool ImageHandler::hide(const std::string_view source, const DataType dataType, const bool has4Channels) {
     _hideSignature();
 
     switch (dataType) {
-        case DataType::STR: {
-            const uint size = source.size();
-            _hideHeader(size);
-
-            uint srcBytes = correctSourceSize(size, _imgCapacity);
-
-            _hidePayload(reinterpret_cast<const uchar*>(source.data()), srcBytes);
-            return true;
-        }
+        case DataType::STR: return _hideStr(source);
+        case DataType::IMAGE: return _hideImage(source, has4Channels);
         case DataType::FILE: {
-            Logger::getInstance()->printInfo("Work in progress");
-            return false;
-        }
-        case DataType::IMAGE: {
-            return !_hideImage(source, has4Channels);
+            Logger::getInstance()->printInfo("Work with file in progress.");
+            return 1;
         }
     }
+
+    return 0;
 }

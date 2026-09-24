@@ -2,7 +2,9 @@
 
 #include <iostream>
 
-void Logger::printError(const char* str) { std::cout << "ERROR: " << str << "\n\n"; }
+void Logger::printError(const char* str, const bool validationError) { 
+    std::cout << "ERROR::" << (validationError ? "VALIDATION:" : "") << " " << str << "\n\n";
+}
 
 void Logger::printInfo(const char* str) { std::cout << str << "\n"; }
 
@@ -38,9 +40,10 @@ void Logger::printHelpInfo() {
 
     "OUTPUT_PATH:\n"
     "Uses with ACTION=hide/read.\n"
-    "Path where will be saved result image. Must include image name (prefer without extension).\n\n"
+    "Path where will be saved result image. Must include image name without file extension.\n"
 
     "For example:\n"
     "LShhB advanced hide str \"This message will be hidden in image with path = ~/Pictures/container.png\" ~/Pictures/container.png\n"
-    "LshhB simple hide image ~/Pictures/source.jpeg ~/Pictures/container.png ~/Pictures/imageWithSecret.png\n\n";
+    "LshhB simple hide image ~/Pictures/source.jpeg ~/Pictures/container.png ~/Pictures/imageWithSecret.png\n"
+    "LshhB simple read image ~/Pictures/imageWithSecret.png /home/myDirectory/secret_from_image\n\n";
 }

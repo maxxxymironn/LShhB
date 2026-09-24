@@ -15,13 +15,13 @@ void Logger::printHelpInfo() {
     "Shh..\n\n"
     
     "MODE:\n"
-    "1) simple - simple hidding algorithm.\n"
-    "2) advanced - uses a password (seed) for better hidding.\n\n"
+    "1) simple - simple hiding algorithm.\n"
+    "2) advanced - seed-based hiding algorithm. Password required.\n\n"
 
     "ACTION:\n"
     "1) help (--help, -h) - print help informaton.\n"
-    "2) hide - hide information (string, .txt file, image) into image.\n"
-    "3) read - read hidden information from image.\n\n"
+    "2) hide - hide information (string, any file, image) in image.\n"
+    "3) read - read hiden information in image.\n\n"
 
     "DATA_TYPE:\n"
     "Uses with ACTION=hide/read.\n"
@@ -31,19 +31,22 @@ void Logger::printHelpInfo() {
 
     "SOURCE(_PATH):\n"
     "Uses with ACTION=hide.\n"
-    "Contains string or path to all format file/image you want to hide.\n\n"
+    "String or path to file/image you want to hide.\n\n"
 
     "IMAGE_PATH:\n"
     "Uses with ACTION=hide/read.\n"
-    "Image path uses for coping image to create new image with hidden information. Supports .png only \n"
-    "Result image will be saved in this path if you not point where save image\n\n"
+    "Image will be loaded in memory and saved as new image with hidden information.\n"
+    "New image will be saved as 'image_with_secret.png' where you run app from, if you does not use OUTPUT_PATH.\n"
+    "Supports ONLY .png.\n\n"
 
     "OUTPUT_PATH:\n"
     "Uses with ACTION=hide/read.\n"
-    "Path where will be saved result image. Must include image name without file extension.\n"
+    "Result of action will be saved in this path.\n"
+    "Filename must not include extension if ACTION=read & DATA_TYPE=image.\n\n"
 
     "For example:\n"
-    "LShhB advanced hide str \"This message will be hidden in image with path = ~/Pictures/container.png\" ~/Pictures/container.png\n"
-    "LshhB simple hide image ~/Pictures/source.jpeg ~/Pictures/container.png ~/Pictures/imageWithSecret.png\n"
-    "LshhB simple read image ~/Pictures/imageWithSecret.png /home/myDirectory/secret_from_image\n\n";
+    "./LShhB advanced hide str \"This message will be hidden in container image with path "
+        "= ~/Pictures/container.png as ~/mySecret.png\" ~/Pictures/container.png ~/mySecret.png\n"
+    "./LShhB simple hide image ~/Pictures/source.jpeg ~/Pictures/container.png\n"
+    "./LShhB simple read image ~/image_with_secret.png ~/myDirectory/secret_from_image\n\n";
 }

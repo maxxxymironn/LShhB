@@ -3,16 +3,10 @@
 #include "enums.hpp"
 
 #include <string_view>
-#include <filesystem>
+#include <string>
 #include <vector>
 
 class ImageHandler {
-    struct Info {
-        unsigned int width;
-        unsigned int height;
-        bool has4Channels;
-    };
-
     int _imgWidth;
     int _imgHeight;
     int _imgChannels;
@@ -22,9 +16,8 @@ class ImageHandler {
     unsigned int _px;
     unsigned int _subPx;
     std::vector<unsigned int> _imgPxs;
+    std::string textData;
 
-    std::filesystem::path _imgPath;
-    std::string_view _secret;
     bool _advancedMode;
 
     void _hideSignature();
@@ -34,16 +27,21 @@ class ImageHandler {
     unsigned int _readHeader();
 
     void _hideImageHeader(const unsigned int width, const unsigned int height, const bool has4Channels);
-    Info _readImageHeader();
+    void _readImageHeader(unsigned int& width, unsigned int& height, bool& has4Channels);
 
     void _hidePayload(const unsigned char* const srcData, const unsigned int size);
-    bool _readPayload(const unsigned int size);
-    void _readImagePayload(unsigned char* const srcData, const unsigned int srcSize);
+    void _readPayload(unsigned char* const srcData, const unsigned int size);
+    // void _readImagePayload(unsigned char* const srcData, const unsigned int srcSize);
 
     bool _hideImage(const std::string_view source, const bool has4Channels);
     void _readImage();
 
+    bool _hideStr(const std::string_view source);
+    void _readStr();
+
     bool _openImage(const std::string_view path);
+
+    bool _saveFile(const std::string& data);
 
 public:
     ImageHandler(const std::string_view imagePath, const std::string_view secret);
@@ -51,10 +49,9 @@ public:
 
     bool getStatus() { return _imgData; }
 
-    void setSecret(const std::string_view secret) { _secret = secret; }
     bool saveResult(
-        const bool isCustomPath, const std::string_view savePath, 
-        const DataType dataType, const Action action
+        const std::string_view savePath, 
+        const DataType dataType, bool hide
     );
 
     bool hide(
